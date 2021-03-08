@@ -2,16 +2,16 @@
 
 import os
 import face_recognition
-# import picamera
 import numpy as np
 import cv2
 from sklearn import svm
 import statistics
 import math
+import pickle
 
 # from PIL import Image, ImageDraw
 
-diretorio_trabalho = '/home/pi/Documents/Identificação facial/Indivíduos/'
+diretorio_trabalho = '/home/pi/Documents/Identificação facial/'
 os.chdir(diretorio_trabalho)
 
 class Pessoa:
@@ -28,8 +28,9 @@ class Pessoa:
         dist = []
         for aux_minuncias in self.minuncias:
             dist.append(np.linalg.norm(face_minuncias-aux_minuncias))
-        mediana = statistics.median(dist)      
-        return mediana
+        # res = statistics.median(dist)
+        res = min(dist)      
+        return res
 
 
 class grupoPessoas:
@@ -79,6 +80,7 @@ class grupoPessoas:
 cv2.startWindowThread()
 cv2.namedWindow("preview")
 
+"""
 # Cria pessoas e insere suas minuncias.
 # Cria "Jaime".
 print("Processando Jaime...")
@@ -90,37 +92,57 @@ jaime.calculaMinuncia(diretorio_trabalho+'Jaime/WhatsApp Image 2021-02-10 at 10.
 jaime.calculaMinuncia(diretorio_trabalho+'Jaime/WhatsApp Image 2021-02-10 at 10.59.37 (1).jpeg')
 
 # Cria "Obama".
-#print("Processando Obama...")
-#obama = Pessoa('Obama')
-#obama.calculaMinuncia(diretorio_trabalho+'Obama/obama.jpg')
+print("Processando Obama...")
+obama = Pessoa('Obama')
+obama.calculaMinuncia(diretorio_trabalho+'Obama/obama.jpg')
 
 # Cria "Priscila".
-#print("Processando Priscila...")
-#priscila = Pessoa('Priscila')
-#priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.17.jpeg')
-#priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.18.jpeg')
-#priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.18 (1).jpeg')
-#priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.19.jpeg')
+print("Processando Priscila...")
+priscila = Pessoa('Priscila')
+priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.17.jpeg')
+priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.18.jpeg')
+priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.18 (1).jpeg')
+priscila.calculaMinuncia(diretorio_trabalho+'Priscila/WhatsApp Image 2021-02-10 at 10.58.19.jpeg')
 
 # Cria grupo de pessoas.
 grupo_teste = grupoPessoas("POLITEC")
 
 # Insere pessoas no grupo.
 grupo_teste.inserePessoa(jaime)
-#grupo_teste.inserePessoa(priscila)
-#grupo_teste.inserePessoa(obama)
+grupo_teste.inserePessoa(priscila)
+grupo_teste.inserePessoa(obama)
+"""
+
+# Salva o objeto.
+# with open('objs.pkl', 'wb') as f:
+#      pickle.dump(grupo_teste, f)
+
+"""
+# Carrrega pessoas.
+import os
+for pasta in os.listdir('./Indivíduos'):
+    for imagem in os.listdir('./Indivíduos/'+pasta+''):
+        print(imagem)
+"""
+
+# Abre o objeto.
+print("Carregando Jaime...")
+with open('objs.pkl', 'rb') as f:
+     grupo_teste = pickle.load(f)
+print("Feito!")
 
 # Inicializa a câmera do Raspberry Pi.
 video_capture = cv2.VideoCapture(0)
-video_capture.set(cv2.CAP_PROP_FPS, 0.1)
+video_capture.set(cv2.CAP_PROP_FPS, 1)
 print(video_capture.get(cv2.CAP_PROP_FPS))
 
 while True:
     # Registra um frame.
     ret, frame = video_capture.read()
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # Redimensiona o frame para 3/4.
-    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+    small_frame = cv2.resize(frame, (0, 0), fx=0.3, fy=0.3)
        
     # Converte de BGR para RGB.
     output = np.array(small_frame[:, :, ::-1])
