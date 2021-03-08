@@ -1,6 +1,8 @@
 import cv2
 import face_recognition
 from flask import Flask, render_template, Response
+import math
+import numpy as np
 import os
 import pickle
 import time
@@ -27,8 +29,9 @@ class Pessoa:
         dist = []
         for aux_minuncias in self.minuncias:
             dist.append(np.linalg.norm(face_minuncias-aux_minuncias))
-        mediana = statistics.median(dist)      
-        return mediana
+        # res = statistics.median(dist)
+        res = min(dist)
+        return res
 
 
 class grupoPessoas:
@@ -105,21 +108,44 @@ def gen_frames():
                 anterior = agora
                 
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)               
-                gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) # Converte para cinza 
+                pequeno_frame = cv2.resize(frame, (0, 0), fx=0.3, fy=0.3) # Reduz para 30%
                 
                 c1 = time.time()
-                faces = detectaFace.detectMultiScale(gray_frame, scaleFactor=1.2, minNeighbors=5, minSize=(20, 20))
-                print('Detecção: ', time.time() - c1)
-                print('Número de faces: ', len(faces))
+                faces = detectaFace.detectMultiScale(gray_frame,
+                                                     scaleFactor=1.2,
+                                                     minNeighbors=5,
+                                                     minSize=(120, 120))
+                print('Detecção de faces: ', time.time() - c1)
+                n_faces = len(faces)
+                print('Número de faces: ', n_faces)
                 
-                for (x,y,w,h) in faces:
-                    cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2) 
-                
+                                
+                if n_faces==1:
+                    for (x,y,w,h) in faces:
+                        cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2) 
+                        print('Altura: ', h, ', largura: ', w)
+                            
+                    c1 = time.time()
+                    face_minuncias = face_recognition.face_encodings(pequeno_frame)[0]
+                    print("Cálculo de minuncias: ", time.time() - c1)
+                    c1 = time.time()
+                    aux_identificacao = grupo_teste.identificaPessoaMD(face_minuncias)
+                    print("Busca de indivíduo: ", time.time() - c1)
+                    if  aux_identificacao["distancia"]<0.5:
+                        print(aux_identificacao)
+                    else:
+                        print("Não identificado!")
+                elif n_faces==0:
+                    print("Nenhuma face detectada!")
+                else:
+                    print("Mais de uma face detectada!")
+                    
                 ret, buffer = cv2.imencode('.jpg', frame)
                 frame = buffer.tobytes()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')  # Concatena e mostra resultado
- 
+                    
 
 
 # Carrega arquivo de exemplo
@@ -137,7 +163,8 @@ def index():
 # Define uma rota para o stream de video
 @app.route('/stream_video')
 def stream_video():
-    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    frames = gen_frames()
+    return Response(frames, mimetype='multipart/x-mixed-replace; boundary=frame')
 
 # Inicia o servidor Flask
 if __name__ == "__main__":
