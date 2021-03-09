@@ -15,8 +15,7 @@ amixer set PCM 100%
 
 """
 
-diretorio_trabalho = '/home/pi/Documents/identificacao_facial'
-os.chdir(diretorio_trabalho)
+diretorio_trabalho = os.getcwd()
 
 # Carrega o som
 pygame.mixer.pre_init(44100, 16, 2, 4096) # frequência, tamanho, canais, buffer
@@ -32,6 +31,8 @@ beep(sound=1)
 detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
 if detectaFace.empty():
     raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
+
+
 
 class Pessoa:
     def __init__(self, nome='Não definido'):
@@ -71,9 +72,15 @@ class grupoPessoas:
         minuncias = []
         nomes = []
         for aux_pessoa in self.pessoas:
-            minuncias = minuncias+aux_pessoa.minuncias
-            nomes = nomes+[aux_pessoa.nome]*len(aux_pessoa.minuncias)
+            minuncias = minuncias + aux_pessoa.minuncias
+            nomes = nomes + [aux_pessoa.nome]*len(aux_pessoa.minuncias)
         return {'minuncias': minuncias, 'nomes': nomes}
+    
+    def mostraNomes(self):
+        nomes = []
+        for aux_pessoa in self.pessoas:
+            nomes = nomes + [aux_pessoa.nome]
+        return nomes
     
     def calibraClassificador(self):
         self.clf = svm.SVC(gamma='scale')
@@ -149,7 +156,7 @@ def gen_frames():
                     face_minuncias = face_recognition.face_encodings(pequeno_frame)[0]
                     print("Cálculo de minuncias: ", time.time() - c1)
                     c1 = time.time()
-                    aux_identificacao = grupo_teste.identificaPessoaMD(face_minuncias)
+                    aux_identificacao = procurados.identificaPessoaMD(face_minuncias)
                     print("Busca de indivíduo: ", time.time() - c1)
                     if  aux_identificacao["distancia"]<0.5:
                         identificacao = aux_identificacao
@@ -185,9 +192,9 @@ def gen_frames():
 
 
 # Carrega arquivo de exemplo
-print("Carregando exemplo...")
+print("Carregando base de dados...")
 with open('objs.pkl', 'rb') as f:
-     grupo_teste = pickle.load(f)
+     procurados = pickle.load(f)
 print("Feito!")
  
  
@@ -201,6 +208,37 @@ def index():
 def streamVideo():
     frames = gen_frames()
     return Response(frames, mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+# Carrrega pessoas.
+@app.route('/processaBase')
+def processaBase():
+    global procurados
+    
+    # Cria grupo de pessoas.
+    procurados = grupoPessoas("procurados")
+    for pasta in os.listdir(diretorio_trabalho +
+                            '/individuos'):
+        aux_pessoa = Pessoa(pasta)
+        for imagem in os.listdir(diretorio_trabalho +
+                                 '/individuos/' +
+                                 pasta +
+                                 ''):
+            aux_pessoa.calculaMinuncia(diretorio_trabalho +
+                                       '/individuos/' +
+                                       pasta +
+                                       '/' +
+                                       imagem)
+            print(pasta + '/' + imagem + ' processado')
+    print(procurados.mostraNomes())
+
+    # Salva o objeto
+    with open('objs.pkl', 'wb') as f:
+        pickle.dump(procurados, f)
+    print('Arquivo objs.pkl salvo!')
+    
+    return 'Base processada!'
+
 
 # Inicia o servidor Flask
 if __name__ == "__main__":
