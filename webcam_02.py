@@ -5,11 +5,29 @@ import math
 import numpy as np
 import os
 import pickle
+import pygame 
 import time
 
+"""
+Definir volume no terminal
+amixer set PCM unmute
+amixer set PCM 100%
 
-diretorio_trabalho = '/home/pi/Documents/Identificação facial/'
+"""
+
+diretorio_trabalho = '/home/pi/Documents/identificacao_facial'
 os.chdir(diretorio_trabalho)
+
+# Carrega o som
+pygame.mixer.pre_init(44100, 16, 2, 4096) # frequência, tamanho, canais, buffer
+pygame.init()
+som = pygame.mixer.Sound('alerta.wav')
+
+"""
+import beepy
+beep(sound=1)
+
+"""
 
 detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
 if detectaFace.empty():
@@ -97,7 +115,9 @@ fpsLimite = 1
 # Adiciona janela e gera os frames para a câmera
 
 def gen_frames():
-    global anterior
+    global anterior, identificacao
+    fonte = cv2.FONT_HERSHEY_DUPLEX
+    
     while True:
         sucesso, frame = camera.read()  # Lê frame
         agora = time.time()
@@ -115,16 +135,15 @@ def gen_frames():
                 faces = detectaFace.detectMultiScale(gray_frame,
                                                      scaleFactor=1.2,
                                                      minNeighbors=5,
-                                                     minSize=(120, 120))
+                                                     minSize=(200, 200))
                 print('Detecção de faces: ', time.time() - c1)
                 n_faces = len(faces)
                 print('Número de faces: ', n_faces)
-                
-                                
+                                           
                 if n_faces==1:
-                    for (x,y,w,h) in faces:
-                        cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2) 
-                        print('Altura: ', h, ', largura: ', w)
+                    #for (x,y,w,h) in faces:
+                    #    cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2) 
+                    #    print('Altura: ', h, ', largura: ', w)
                             
                     c1 = time.time()
                     face_minuncias = face_recognition.face_encodings(pequeno_frame)[0]
@@ -133,18 +152,35 @@ def gen_frames():
                     aux_identificacao = grupo_teste.identificaPessoaMD(face_minuncias)
                     print("Busca de indivíduo: ", time.time() - c1)
                     if  aux_identificacao["distancia"]<0.5:
-                        print(aux_identificacao)
+                        identificacao = aux_identificacao
+                        print(identificacao)
+                        (x,y,w,h) = faces[0]
+                        cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
+                        cv2.putText(frame,
+                                    identificacao["nome"],
+                                    (x + 7, y - 7),
+                                    fonte,
+                                    1,
+                                    (255, 255, 255),
+                                    1,
+                                    cv2.LINE_AA)
+                        som.play()
+                        
                     else:
                         print("Não identificado!")
+                        cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
                 elif n_faces==0:
                     print("Nenhuma face detectada!")
+                    identificacao = None
                 else:
                     print("Mais de uma face detectada!")
+                    identificacao = None
                     
                 ret, buffer = cv2.imencode('.jpg', frame)
-                frame = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')  # Concatena e mostra resultado
+                frame = buffer.tobytes() 
+                saida = (b'--frame\r\n'
+                         b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                yield saida # Concatena e mostra resultado
                     
 
 
@@ -161,8 +197,8 @@ def index():
     return render_template('index.html')
 
 # Define uma rota para o stream de video
-@app.route('/stream_video')
-def stream_video():
+@app.route('/streamVideo')
+def streamVideo():
     frames = gen_frames()
     return Response(frames, mimetype='multipart/x-mixed-replace; boundary=frame')
 
