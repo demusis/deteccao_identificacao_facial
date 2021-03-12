@@ -13,6 +13,10 @@ Definir volume no terminal
 amixer set PCM unmute
 amixer set PCM 100%
 
+Para evitar timeout da câmera
+/#bin/bash
+rmmod uvcvideo
+modprobe uvcvideo nodrop=1 timeout=5000 quirks=0x80
 """
 
 diretorio_trabalho = os.getcwd()
@@ -27,12 +31,6 @@ import beepy
 beep(sound=1)
 
 """
-
-detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
-if detectaFace.empty():
-    raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
-
-
 
 class Pessoa:
     def __init__(self, nome='Não definido'):
@@ -54,8 +52,8 @@ class Pessoa:
 
 
 class grupoPessoas:
-    def __init__(self, nome='Não definido'):
-        self.nome = nome
+    def __init__(self, nome_grupo='Não definido'):
+        self.nome_grupo = nome_grupo
         self.pessoas = []
     
     def inserePessoa(self, pessoa):
@@ -104,6 +102,14 @@ class grupoPessoas:
         return {'nome': nome, 'distancia':distancia}
 
 
+# Carrega arquivo de exemplo
+print("Carregando base de dados...")
+with open('procurados.pkl', 'rb') as f:
+     procurados = pickle.load(f)
+print("Feito!")
+print("Procurados: ", procurados.mostraNomes())
+
+
 #Inicializa a aplicação Flask
 app = Flask(__name__)
 
@@ -120,14 +126,19 @@ anterior = time.time()
 fpsLimite = 1
 
 # Adiciona janela e gera os frames para a câmera
-
+suspeito = None
 def gen_frames():
-    global anterior, identificacao
+    global anterior, suspeito
     fonte = cv2.FONT_HERSHEY_DUPLEX
+    
+    detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
+    if detectaFace.empty():
+        raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
     
     while True:
         sucesso, frame = camera.read()  # Lê frame
         agora = time.time()
+        suspeito = None
         if not sucesso:
             break
         else:
@@ -136,13 +147,13 @@ def gen_frames():
                 
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)               
                 gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) # Converte para cinza 
-                pequeno_frame = cv2.resize(frame, (0, 0), fx=0.3, fy=0.3) # Reduz para 30%
+                pequeno_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5) # Reduz para 30%
                 
                 c1 = time.time()
                 faces = detectaFace.detectMultiScale(gray_frame,
                                                      scaleFactor=1.2,
                                                      minNeighbors=5,
-                                                     minSize=(200, 200))
+                                                     minSize=(150, 150))
                 print('Detecção de faces: ', time.time() - c1)
                 n_faces = len(faces)
                 print('Número de faces: ', n_faces)
@@ -151,54 +162,54 @@ def gen_frames():
                     #for (x,y,w,h) in faces:
                     #    cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2) 
                     #    print('Altura: ', h, ', largura: ', w)
-                            
+                    (x,y,w,h) = faces[0]       
                     c1 = time.time()
-                    face_minuncias = face_recognition.face_encodings(pequeno_frame)[0]
-                    print("Cálculo de minuncias: ", time.time() - c1)
-                    c1 = time.time()
-                    aux_identificacao = procurados.identificaPessoaMD(face_minuncias)
-                    print("Busca de indivíduo: ", time.time() - c1)
-                    if  aux_identificacao["distancia"]<0.5:
-                        identificacao = aux_identificacao
-                        print(identificacao)
-                        (x,y,w,h) = faces[0]
-                        cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
-                        cv2.putText(frame,
-                                    identificacao["nome"],
-                                    (x + 7, y - 7),
-                                    fonte,
-                                    1,
-                                    (255, 255, 255),
-                                    1,
-                                    cv2.LINE_AA)
-                        som.play()
-                        
+                    try:
+                        face_minuncias = face_recognition.face_encodings(pequeno_frame)[0]
+                    except:
+                        pass
                     else:
-                        print("Não identificado!")
-                        cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
+                        print("Cálculo de minuncias: ", time.time() - c1)
+                        c1 = time.time()
+                        aux_identificacao = procurados.identificaPessoaMD(face_minuncias)
+                        print("Busca de indivíduo: ", time.time() - c1)
+                        print("Indivíduo: ", aux_identificacao)
+                        if  aux_identificacao["distancia"]<0.5:
+                            suspeito = aux_identificacao
+                            cv2.rectangle(frame, (x,y), (x+w,y+h), (0, 0, 255), 2)
+                            cv2.putText(frame,
+                                        aux_identificacao["nome"],
+                                        (x + 7, y + h + 29),
+                                        fonte,
+                                        1,
+                                        (0, 0, 255),
+                                        1,
+                                        cv2.LINE_AA)
+                            som.play()
+                            
+                        else:
+                            print("Não identificado!")
+                            cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
                 elif n_faces==0:
                     print("Nenhuma face detectada!")
-                    identificacao = None
+                    suspeito = None
                 else:
                     print("Mais de uma face detectada!")
-                    identificacao = None
+                    suspeito = None
                     
                 ret, buffer = cv2.imencode('.jpg', frame)
                 frame = buffer.tobytes() 
                 saida = (b'--frame\r\n'
-                         b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                         b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')      
                 yield saida # Concatena e mostra resultado
                     
 
+def gen_suspeito():
+    global suspeito
+    yield suspeito
 
-# Carrega arquivo de exemplo
-print("Carregando base de dados...")
-with open('objs.pkl', 'rb') as f:
-     procurados = pickle.load(f)
-print("Feito!")
  
- 
- # Define uma rota para a aplicação web
+# Define uma rota para a aplicação web
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -208,6 +219,13 @@ def index():
 def streamVideo():
     frames = gen_frames()
     return Response(frames, mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# Define uma rota para o stream de texto
+@app.route('/streamSuspeito')
+def streamSuspeito():
+    global suspeito
+    return str(suspeito)
+
 
 
 # Carrrega pessoas.
@@ -230,12 +248,13 @@ def processaBase():
                                        '/' +
                                        imagem)
             print(pasta + '/' + imagem + ' processado')
+        procurados.inserePessoa(aux_pessoa)   
     print(procurados.mostraNomes())
 
     # Salva o objeto
-    with open('objs.pkl', 'wb') as f:
+    with open('procurados.pkl', 'wb') as f:
         pickle.dump(procurados, f)
-    print('Arquivo objs.pkl salvo!')
+    print('Arquivo procurados.pkl salvo!')
     
     return 'Base processada!'
 
