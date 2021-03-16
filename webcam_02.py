@@ -1,12 +1,14 @@
 import cv2
 import face_recognition
-from flask import Flask, render_template, Response
+from flask import Flask, jsonify, render_template, request, Response
 import math
 import numpy as np
 import os
 import pickle
 import pygame 
 import time
+import webbrowser
+
 
 """
 Definir volume no terminal
@@ -15,8 +17,8 @@ amixer set PCM 100%
 
 Para evitar timeout da câmera
 /#bin/bash
-rmmod uvcvideo
-modprobe uvcvideo nodrop=1 timeout=5000 quirks=0x80
+sudo rmmod uvcvideo
+sudo modprobe uvcvideo nodrop=1 timeout=5000 quirks=0x80
 """
 
 diretorio_trabalho = os.getcwd()
@@ -126,7 +128,7 @@ anterior = time.time()
 fpsLimite = 1
 
 # Adiciona janela e gera os frames para a câmera
-suspeito = None
+suspeito = ''
 def gen_frames():
     global anterior, suspeito
     fonte = cv2.FONT_HERSHEY_DUPLEX
@@ -136,24 +138,22 @@ def gen_frames():
         raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
     
     while True:
-        sucesso, frame = camera.read()  # Lê frame
         agora = time.time()
-        suspeito = None
-        if not sucesso:
-            break
-        else:
-            if (agora - anterior) > fpsLimite:
-                anterior = agora
-                
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)               
+        if (agora - anterior) > fpsLimite:
+            anterior = agora
+            sucesso, frame = camera.read()  # Lê frame
+            suspeito = ''
+            if sucesso:
+                # rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)               
                 gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) # Converte para cinza 
-                pequeno_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5) # Reduz para 30%
+                m = 0.5
+                pequeno_frame = cv2.resize(frame, (0, 0), fx=m, fy=m) # Reduz para 30%
                 
                 c1 = time.time()
-                faces = detectaFace.detectMultiScale(gray_frame,
-                                                     scaleFactor=1.2,
-                                                     minNeighbors=5,
-                                                     minSize=(150, 150))
+                faces = detectaFace.detectMultiScale(pequeno_frame,
+                                                     scaleFactor=2,
+                                                     minNeighbors=1,
+                                                     minSize=(50, 50))
                 print('Detecção de faces: ', time.time() - c1)
                 n_faces = len(faces)
                 print('Número de faces: ', n_faces)
@@ -162,10 +162,15 @@ def gen_frames():
                     #for (x,y,w,h) in faces:
                     #    cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2) 
                     #    print('Altura: ', h, ', largura: ', w)
-                    (x,y,w,h) = faces[0]       
-                    c1 = time.time()
+                    (x,y,w,h) = faces[0]
+                    x = x/m
+                    y = y/m
+                    w = w/m
+                    h = h/m
+                    
                     try:
-                        face_minuncias = face_recognition.face_encodings(pequeno_frame)[0]
+                        c1 = time.time()
+                        face_minuncias = face_recognition.face_encodings(gray_frame)[0]
                     except:
                         pass
                     else:
@@ -175,9 +180,9 @@ def gen_frames():
                         print("Busca de indivíduo: ", time.time() - c1)
                         print("Indivíduo: ", aux_identificacao)
                         if  aux_identificacao["distancia"]<0.5:
-                            suspeito = aux_identificacao
-                            cv2.rectangle(frame, (x,y), (x+w,y+h), (0, 0, 255), 2)
-                            cv2.putText(frame,
+                            suspeito = aux_identificacao['nome']
+                            cv2.rectangle(pequeno_frame, (x,y), (x+w,y+h), (0, 0, 255), 2)
+                            cv2.putText(pequeno_frame,
                                         aux_identificacao["nome"],
                                         (x + 7, y + h + 29),
                                         fonte,
@@ -189,24 +194,24 @@ def gen_frames():
                             
                         else:
                             print("Não identificado!")
-                            cv2.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)
+                            suspeito = "Não identificado!"
+                            cv2.rectangle(pequeno_frame,
+                                          (x,y),
+                                          (x+w,y+h),
+                                          (0,255,0),
+                                          2)
                 elif n_faces==0:
                     print("Nenhuma face detectada!")
-                    suspeito = None
+                    suspeito = "Nenhuma face detectada!"
                 else:
                     print("Mais de uma face detectada!")
-                    suspeito = None
+                    suspeito = "Mais de uma face detectada!"
                     
-                ret, buffer = cv2.imencode('.jpg', frame)
-                frame = buffer.tobytes() 
+                ret, buffer = cv2.imencode('.jpg', pequeno_frame)
+                pequeno_frame = buffer.tobytes() 
                 saida = (b'--frame\r\n'
-                         b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')      
+                         b'Content-Type: image/jpeg\r\n\r\n' + pequeno_frame + b'\r\n')      
                 yield saida # Concatena e mostra resultado
-                    
-
-def gen_suspeito():
-    global suspeito
-    yield suspeito
 
  
 # Define uma rota para a aplicação web
@@ -214,18 +219,12 @@ def gen_suspeito():
 def index():
     return render_template('index.html')
 
+
 # Define uma rota para o stream de video
 @app.route('/streamVideo')
 def streamVideo():
     frames = gen_frames()
     return Response(frames, mimetype='multipart/x-mixed-replace; boundary=frame')
-
-# Define uma rota para o stream de texto
-@app.route('/streamSuspeito')
-def streamSuspeito():
-    global suspeito
-    return str(suspeito)
-
 
 
 # Carrrega pessoas.
