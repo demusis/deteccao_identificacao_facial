@@ -10,6 +10,10 @@ import time
 import webbrowser
 
 
+fpsLimite = 1.2 # número de frames capturados por segundo.
+m = 0.75 # Fator de redução do frame.
+
+
 """
 Definir volume no terminal
 amixer set PCM unmute
@@ -125,7 +129,7 @@ http://help.angelcam.com/en/articles/372649-finding-rtsp-addresses-for-ip-camera
 
 camera = cv2.VideoCapture(0)
 anterior = time.time()
-fpsLimite = 1
+
 
 # Adiciona janela e gera os frames para a câmera
 suspeito = ''
@@ -133,84 +137,91 @@ def gen_frames():
     global anterior, suspeito
     fonte = cv2.FONT_HERSHEY_DUPLEX
     
-    detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
-    if detectaFace.empty():
-        raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
+    # detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
+    # if detectaFace.empty():
+    #    raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
     
     while True:
         agora = time.time()
         if (agora - anterior) > fpsLimite:
-            anterior = agora
+            c0 = time.time()
             sucesso, frame = camera.read()  # Lê frame
-            suspeito = ''
             if sucesso:
-                # rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)               
-                gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) # Converte para cinza 
-                m = 0.5
-                pequeno_frame = cv2.resize(frame, (0, 0), fx=m, fy=m) # Reduz para 30%
+                anterior = agora
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)               
+                pequeno_frame = cv2.resize(rgb_frame,
+                                           (0, 0),
+                                           fx=m, fy=m)
+                gray_frame = cv2.cvtColor(pequeno_frame, cv2.COLOR_BGR2GRAY) # Converte para cinza                 
                 
+                # Detecção de face utilizando opencv
+                # faces = detectaFace.detectMultiScale(pequeno_frame,
+                #                                      scaleFactor=1.4,
+                #                                      minNeighbors=1,
+                #                                      minSize=(50, 50))
+                
+                # Detecta as coordenadas da caixa das faces detectadas.
                 c1 = time.time()
-                faces = detectaFace.detectMultiScale(pequeno_frame,
-                                                     scaleFactor=2,
-                                                     minNeighbors=1,
-                                                     minSize=(50, 50))
+                faces = face_recognition.face_locations(gray_frame)
                 print('Detecção de faces: ', time.time() - c1)
                 n_faces = len(faces)
                 print('Número de faces: ', n_faces)
                                            
-                if n_faces==1:
-                    #for (x,y,w,h) in faces:
-                    #    cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2) 
-                    #    print('Altura: ', h, ', largura: ', w)
-                    (x,y,w,h) = faces[0]
-                    x = x/m
-                    y = y/m
-                    w = w/m
-                    h = h/m
-                    
+                if n_faces==1:                
                     try:
                         c1 = time.time()
-                        face_minuncias = face_recognition.face_encodings(gray_frame)[0]
+                        face_minuncias = face_recognition.face_encodings(pequeno_frame,
+                                                                         faces)[0]
+                        print("Cálculo de minuncias: ", time.time() - c1)
                     except:
                         pass
                     else:
-                        print("Cálculo de minuncias: ", time.time() - c1)
                         c1 = time.time()
                         aux_identificacao = procurados.identificaPessoaMD(face_minuncias)
-                        print("Busca de indivíduo: ", time.time() - c1)
-                        print("Indivíduo: ", aux_identificacao)
+                        print("Busca de indivíduo: ",
+                              time.time() - c1)
+                        
+                        (topo, direita, base, esquerda) = faces[0]
+                        topo = int(topo//m)
+                        direita = int(direita//m)
+                        base = int(base//m)
+                        esquerda = int(esquerda//m)
+                        
+                        
                         if  aux_identificacao["distancia"]<0.5:
                             suspeito = aux_identificacao['nome']
-                            cv2.rectangle(pequeno_frame, (x,y), (x+w,y+h), (0, 0, 255), 2)
-                            cv2.putText(pequeno_frame,
+                            cv2.rectangle(frame,
+                                          (esquerda, topo),
+                                          (direita, base),
+                                          (0, 0, 255),
+                                          2)
+                            cv2.putText(frame,
                                         aux_identificacao["nome"],
-                                        (x + 7, y + h + 29),
+                                        (esquerda + 7, base - 7),
                                         fonte,
                                         1,
                                         (0, 0, 255),
                                         1,
                                         cv2.LINE_AA)
                             som.play()
-                            
                         else:
                             print("Não identificado!")
-                            suspeito = "Não identificado!"
-                            cv2.rectangle(pequeno_frame,
-                                          (x,y),
-                                          (x+w,y+h),
-                                          (0,255,0),
+                            cv2.rectangle(frame,
+                                          (esquerda, topo),
+                                          (direita, base),
+                                          (0, 255, 0),
                                           2)
+
                 elif n_faces==0:
                     print("Nenhuma face detectada!")
-                    suspeito = "Nenhuma face detectada!"
                 else:
-                    print("Mais de uma face detectada!")
-                    suspeito = "Mais de uma face detectada!"
-                    
-                ret, buffer = cv2.imencode('.jpg', pequeno_frame)
-                pequeno_frame = buffer.tobytes() 
+                    print("Mais de uma face detectada!")      
+
+                ret, buffer = cv2.imencode('.jpg', frame)
+                frame = buffer.tobytes() 
                 saida = (b'--frame\r\n'
-                         b'Content-Type: image/jpeg\r\n\r\n' + pequeno_frame + b'\r\n')      
+                         b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                print(' --> Tempo de processamento: ', time.time() - c0)
                 yield saida # Concatena e mostra resultado
 
  
