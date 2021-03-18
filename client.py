@@ -5,6 +5,9 @@ from flask import Flask, jsonify, render_template, request, Response
 import json
 import math
 import numpy as np
+from oorf import Pessoa, grupoPessoas
+import os
+import pickle
 import pygame
 import requests
 import time
@@ -42,11 +45,11 @@ print(json.loads(response.text))
 # --------------------------------------------------------------------------
 
 # Constantes
-fpsLimite = 0.2 # número de frames capturados por segundo.
-m = 0.75 # Fator de redução do frame.
 addr = 'http://localhost:5000'
+diretorio_trabalho = os.getcwd()
 identificacao_url = addr + '/api/identificacao'
-
+fpsLimite = 0.2 # número de frames capturados por segundo.
+m = 1 # Fator de redução do frame.
 
 # Prepara cabeçalhos para requisição http
 content_type = 'image/jpeg'
@@ -70,9 +73,9 @@ http://help.angelcam.com/en/articles/372649-finding-rtsp-addresses-for-ip-camera
 
 # print(retornaCameraIndices())
 
-camera = cv2.VideoCapture(-1)
+camera = cv2.VideoCapture(-1) # 0 para RAspberry Pi
 if not camera.isOpened():
-    raise IOError("Não consegui abrir a webcam!")
+    raise IOError("Erro na webcam!")
 
 # Define resolução
 # camera.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, 640)
@@ -88,9 +91,10 @@ def gen_frames():
     global anterior, suspeito
     fonte = cv2.FONT_HERSHEY_DUPLEX
 
-    # detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
-    # if detectaFace.empty():
-    #    raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
+    # Classificador para o opencv
+    detectaFace = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml')
+    if detectaFace.empty():
+       raise IOError('Erro ao carregar haarcascade_frontalface_alt.xml')
 
     while True:
         agora = time.time()
@@ -99,49 +103,71 @@ def gen_frames():
             sucesso, frame = camera.read()  # Lê frame
             if sucesso:
                 anterior = agora
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pequeno_frame = cv2.resize(rgb_frame,
+                pequeno_frame = cv2.resize(frame,
                                            (0, 0),
                                            fx=m, fy=m)
                 gray_frame = cv2.cvtColor(pequeno_frame, cv2.COLOR_BGR2GRAY) # Converte para cinza
 
-                # Detecção de face utilizando opencv
-                # faces = detectaFace.detectMultiScale(pequeno_frame,
-                #                                      scaleFactor=1.4,
-                #                                      minNeighbors=1,
-                #                                      minSize=(50, 50))
-
                 # Detecta as coordenadas da caixa das faces detectadas.
                 c1 = time.time()
-                faces = face_recognition.face_locations(gray_frame)
+
+                # Detecção de face utilizando face_recognition (0.15s)
+                # faces = face_recognition.face_locations(gray_frame)
+
+
+                # Detecção de face utilizando opencv (0.007s)
+                faces = detectaFace.detectMultiScale(gray_frame,
+                                                     scaleFactor=1.3,
+                                                     minNeighbors=1,
+                                                     minSize=(75, 75))
+
+
                 print('Detecção de faces: ', time.time() - c1)
                 n_faces = len(faces)
                 print('Número de faces: ', n_faces)
 
                 if n_faces==1:
+                    # Com o face_recognition
+                    # (topo, direita, base, esquerda) = faces[0]
 
-                    (topo, direita, base, esquerda) = faces[0]
+
+                    # Com o opencv
+                    (x, y, w, h) = faces[0]
+                    esquerda = x
+                    topo = y
+                    direita = x + w
+                    base = y + h
+
+
                     imagem_face = pequeno_frame[topo:base, esquerda:direita]
 
-                    # Codifica imagem como jpeg
+                    # Codifica imagem como jpg
                     _, img_encoded = cv2.imencode('.jpg', imagem_face)
 
-                    # face_minuncias = face_recognition.face_encodings(pequeno_frame,
+                    # Processamento local
+                    # face_minuncias = face_recognition.face_encodings(imagem_face,
                     #                                                  faces)[0]
+                    # print(face_minuncias)
 
+                    identificacao = {"suspeito": "Não identificado"}
                     try:
-                        # Envia http request com imagem e recebe resposta
+
+                        # Envia http request com imagem e recebe resposta (0.35s)
                         c1 = time.time()
-                        resposta = requests.post(identificacao_url, data=img_encoded.tostring(), headers=headers)
-                        print('Identificação: ', time.time() - c1)
+                        resposta = requests.post(identificacao_url,
+                                                 data=img_encoded.tostring(),
+                                                 headers=headers)
+                        print('Tempo de identificação: ', time.time() - c1)
 
                         # Decodifica resposta
                         identificacao = json.loads(resposta.text)
+                        print('Suspeito: ', identificacao["suspeito"])
+
                     except:
                         print('Erro no servidor da API.')
                     else:
-
-                        c1 = time.time()
+                        # Indentificação local
+                        # c1 = time.time()
                         # aux_identificacao = procurados.identificaPessoaMD(face_minuncias)
                         # print("Busca de indivíduo: ",
                         #       time.time() - c1)
@@ -175,7 +201,7 @@ def gen_frames():
                                         1,
                                         cv2.LINE_AA)
                             som.play()
-                            time.sleep(3)
+                            time.sleep(2)
 
                 elif n_faces==0:
                     print("Nenhuma face detectada!")
@@ -203,12 +229,11 @@ def streamVideo():
     return Response(frames, mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
-# Carrrega pessoas.
-"""
+# Processa base (local).
 @app.route('/processaBase')
 def processaBase():
-    global procurados
-
+    # global procurados
+    n = 0
     # Cria grupo de pessoas.
     procurados = grupoPessoas("procurados")
     for pasta in os.listdir(diretorio_trabalho +
@@ -223,16 +248,17 @@ def processaBase():
                                        pasta +
                                        '/' +
                                        imagem)
-            print(pasta + '/' + imagem + ' processado')
+            n = n + 1
+            print('Imagem ' + pasta + ' / ' + imagem + ' processada')
         procurados.inserePessoa(aux_pessoa)
-    print(procurados.mostraNomes())
-
+    # print(procurados.mostraNomes())
+    print('Número de imagens: ', n)
     # Salva o objeto
     with open('procurados.pkl', 'wb') as f:
         pickle.dump(procurados, f)
     print('Arquivo procurados.pkl salvo!')
     return 'Base processada!'
-"""
+
 
 # Inicia o servidor Flask
 if __name__ == "__main__":
