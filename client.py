@@ -184,7 +184,7 @@ def gen_frames():
                                           (direita, base),
                                           (0, 255, 0),
                                           2)
-                        elif identificacao["suspeito"]== "Erro":
+                        elif "Erro" in identificacao["suspeito"]:
                             pass
                         else:
                             cv2.rectangle(frame,

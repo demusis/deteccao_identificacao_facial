@@ -53,7 +53,7 @@ def identificacao():
         face_minuncias = face_recognition.face_encodings(rgb_img)
     except:
         print('Erro na obtenção das minuncias')
-        suspeito = "Erro"
+        suspeito = "Erro "
     else:
         if len(face_minuncias)==1:
             aux_identificacao = procurados.identificaPessoaMD(face_minuncias[0])
@@ -61,6 +61,8 @@ def identificacao():
                 suspeito = aux_identificacao['nome']
             else:
                 suspeito = "Não identificado"
+        else:
+            suspeito = "Erro - número de faces diferente de 1"
 
     # Retorna mensagem para o cliente
     response = {'suspeito': suspeito}
