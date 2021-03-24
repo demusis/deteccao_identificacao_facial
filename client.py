@@ -12,35 +12,12 @@ import pygame
 import requests
 import time
 
-
-#
-# Teste
-#
-
 """
-addr = 'http://localhost:5000'
-test_url = addr + '/api/identificacao'
-
-# Inicializa câmera
-camera = cv2.VideoCapture(0)
-anterior = time.time()
-
-# Prepara cabeçalhos para requisição http
-content_type = 'image/jpeg'
-headers = {'content-type': content_type}
-
-img = cv2.imread('obama.jpg')
-
-# Codifica imagem como jpeg
-_, img_encoded = cv2.imencode('.jpg', img)
-
-# Envia http request com imagem e recebe resposta
-response = requests.post(test_url, data=img_encoded.tobytes(), headers=headers)
-
-# Decodifica resposta
-print(json.loads(response.text))
+Configuração da webcam
+/#bin/bash
+rmmod uvcvideo
+modprobe uvcvideo nodrop=1 timeout=5000 quirks=0x80
 """
-
 
 # --------------------------------------------------------------------------
 
